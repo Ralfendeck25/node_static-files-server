@@ -4,63 +4,70 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 
+// Logger simples (adicione este código ou crie em um arquivo separado logger.js)
+const logger = {
+  error: (message, error) => {
+    // Em produção, você poderia enviar para um serviço de log
+    // Aqui estamos apenas usando console, mas de forma controlada
+    if (process.env.NODE_ENV !== 'production') {
+      console.error(`[${new Date().toISOString()}] ERROR:`, message, error);
+    }
+  },
+};
+
 function createServer() {
-  const server = http.createServer((req, res) => {
+  return http.createServer((req, res) => {
     if (!req.url) {
       res.statusCode = 400;
-      res.setHeader('Content-Type', 'text/plain');
       res.end('Invalid URL');
       return;
     }
 
-    // Use URL constructor instead of url.parse()
-    const baseURL = `http://${req.headers.host || 'localhost'}`;
-    let givenUrl;
-    try {
-      givenUrl = new URL(req.url, baseURL);
-    } catch (err) {
-      res.statusCode = 400;
-      res.setHeader('Content-Type', 'text/plain');
-      res.end('Invalid URL format');
-      return;
-    }
+    // Decode and normalize the URL
+    const requestedPath = decodeURIComponent(req.url);
+    const baseRoute = '/file/';
 
-    const givenPath = decodeURIComponent(givenUrl.pathname);
-
-    if (!givenPath.startsWith('/file/')) {
+    // Handle non-file routes
+    if (!requestedPath.startsWith(baseRoute)) {
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/plain');
       res.end('Access files via /file/ route');
       return;
     }
 
-    if (givenPath.includes('../') || givenPath.includes('..\\')) {
+    // Extract the file path after /file/
+    const filePath = requestedPath.slice(baseRoute.length - 1); // Keep leading slash
+
+    // Block path traversal attempts (more comprehensive check)
+    if (
+      filePath.includes('../') ||
+      filePath.includes('..\\') ||
+      path.normalize(filePath) !== filePath.replace(/\\/g, '/')
+    ) {
       res.statusCode = 400;
       res.setHeader('Content-Type', 'text/plain');
       res.end('Path traversal detected');
       return;
     }
 
-    if (givenPath.includes('//')) {
-      res.statusCode = 404;
-      res.setHeader('Content-Type', 'text/plain');
-      res.end('Avoid duplicated slashes');
-      return;
-    }
-
-    const filePath = givenPath.slice(6) || 'index.html';
-    const fullPath = path.join(__dirname, '..', 'public', filePath);
-    const normalizedPath = path.normalize(fullPath);
+    // Resolve full file path with security checks
     const publicDir = path.normalize(path.join(__dirname, '..', 'public'));
+    const fullPath = path.join(publicDir, filePath);
+    const normalizedPath = path.normalize(fullPath);
 
-    if (!normalizedPath.startsWith(publicDir)) {
+    // Verify path is within public directory (more secure check)
+    if (
+      !normalizedPath.startsWith(publicDir + path.sep) &&
+      normalizedPath !== publicDir
+    ) {
       res.statusCode = 400;
       res.setHeader('Content-Type', 'text/plain');
       res.end('Invalid path');
       return;
     }
 
-    fs.readFile(normalizedPath, (err, data) => {
+    // Check if path exists and is a file
+    fs.stat(normalizedPath, (err, stats) => {
       if (err) {
         res.statusCode = 404;
         res.setHeader('Content-Type', 'text/plain');
@@ -68,22 +75,49 @@ function createServer() {
         return;
       }
 
-      let contentType = 'text/plain';
+      if (stats.isDirectory()) {
+        res.statusCode = 400;
+        res.setHeader('Content-Type', 'text/plain');
+        res.end('Directory listing not allowed');
+        return;
+      }
+
+      // Stream the file instead of reading it all into memory
+      const stream = fs.createReadStream(normalizedPath);
+
+      // Handle stream errors
+      stream.on('error', (err) => {
+        logger.error('Erro ao ler arquivo:', err);
+        res.statusCode = 500;
+        res.end('Internal Server Error');
+      });
+
+      // Set Content-Type based on file extension
       const ext = path.extname(normalizedPath).toLowerCase();
-      if (ext === '.html') contentType = 'text/html';
-      if (ext === '.css') contentType = 'text/css';
-      if (ext === '.js') contentType = 'text/javascript';
-      if (ext === '.json') contentType = 'application/json';
-      if (ext === '.png') contentType = 'image/png';
-      if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+      const contentType =
+        {
+          '.html': 'text/html',
+          '.css': 'text/css',
+          '.js': 'text/javascript',
+          '.json': 'application/json',
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.svg': 'image/svg+xml',
+          '.txt': 'text/plain',
+        }[ext] || 'application/octet-stream';
 
       res.statusCode = 200;
       res.setHeader('Content-Type', contentType);
-      res.end(data);
+
+      // Add security headers
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+
+      // Pipe the file to the response
+      stream.pipe(res);
     });
   });
-
-  return server;
 }
 
 module.exports = { createServer };

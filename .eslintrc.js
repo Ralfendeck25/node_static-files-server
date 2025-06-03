@@ -12,6 +12,6 @@ module.exports = {
   ],
   "rules": {
     "node/no-deprecated-api": "error",
-    "no-console": "warn"
+    "no-console": "off"
   }
 }

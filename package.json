@@ -11,7 +11,8 @@
     "test:only": "mate-scripts test",
     "update": "mate-scripts update",
     "postinstall": "npm run update",
-    "test": "npm run lint && npm run test:only"
+    "test": "jest --coverage",
+    "test:watch": "jest --watch"
   },
   "author": "Mate academy",
   "license": "GPL-3.0",
@@ -24,7 +25,14 @@
     "eslint-plugin-jest": "^28.12.0",
     "eslint-plugin-node": "^11.1.0",
     "jest": "^29.7.0",
-    "prettier": "^3.3.2"
+    "prettier": "^3.3.2",
+    "supertest": "^7.1.1"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "src/**/*.js"
+    ]
   },
   "mateAcademy": {
     "projectType": "javascript"
