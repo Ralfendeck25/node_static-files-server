@@ -4,7 +4,8 @@ module.exports = {
     jest: true
   },
   rules: {
-    'no-proto': 0
+    'no-proto': 0,
+    "node/no-deprecated-api": "error"
   },
-  plugins: ['jest']
+  plugins: ['jest || node'],
 };

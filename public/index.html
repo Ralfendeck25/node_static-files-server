@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Static File Server</title>
+  <link rel="stylesheet" href="/file/styles/main.css">
+</head>
+<body>
+  <header class="header">
+    <h1>Welcome to My Static Server</h1>
+  </header>
+
+  <main class="content">
+    <section class="intro">
+      <h2>How It Works</h2>
+      <p>This page is served from a Node.js static file server.</p>
+      <ul class="features">
+        <li>Serves HTML, CSS, JavaScript</li>
+        <li>Handles nested directories</li>
+        <li>Prevents path traversal attacks</li>
+      </ul>
+    </section>
+
+    <section class="demo">
+      <h2>Try These Routes</h2>
+      <div class="routes">
+        <a href="/file/styles/main.css" class="route-link">View CSS</a>
+        <a href="/file/nonexistent.txt" class="route-link">Test 404</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Node.js Static File Server Example</p>
+  </footer>
+</body>
+</html>

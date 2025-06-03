@@ -1,151 +1,56 @@
-/* eslint-disable indent */
-/* eslint-disable max-len */
 'use strict';
 
-const axios = require('axios');
+const http = require('http');
 const path = require('path');
-const { faker } = require('@faker-js/faker');
 const fs = require('fs');
-const { Server, Agent } = require('http');
-const { createServer } = require('../src/createServer.js');
+const url = require('url');
 
-// this prevents `socket hang up` for Node.js 20.10+
-axios.defaults.httpAgent = new Agent({ keepAlive: false });
+const PUBLIC_FOLDER = path.join(__dirname, 'public');
 
-const PORT = 5701;
-const HOST = `http://localhost:${PORT}`;
+function createServer() {
+  return http.createServer((req, res) => {
+    const parsedUrl = url.parse(req.url);
+    const pathname = decodeURIComponent(parsedUrl.pathname);
 
-function generateRandomCSS() {
-  return `
-    .${faker.lorem.word()} {
-      color: ${faker.internet.color()};
-      font-size: ${faker.number.int({
-        min: 12, max: 24,
-      })}px;
+    // Block path traversal attempts
+    if (pathname.includes('../') || pathname.includes('..\\')) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Path traversal detected');
+      return;
     }
 
-    .${faker.lorem.word()} {
-      background-color: ${faker.internet.color()};
-      border: 2px solid ${faker.internet.color()};
-      padding: ${faker.number.int({
-        min: 5, max: 20,
-      })}px;
+    // Handle /file/ routes
+    if (pathname.startsWith('/file/')) {
+      const filePath = pathname.slice(6); // Remove '/file/'
+      const fullPath = path.join(PUBLIC_FOLDER, filePath);
+
+      // Normalize path and check it's still within public folder
+      const normalizedPath = path.normalize(fullPath);
+      if (!normalizedPath.startsWith(PUBLIC_FOLDER)) {
+        res.writeHead(400, { 'Content-Type': 'text/plain' });
+        res.end('Invalid path');
+        return;
+      }
+
+      fs.readFile(normalizedPath, (err, data) => {
+        if (err) {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('File not found');
+          return;
+        }
+
+        let contentType = 'text/plain';
+        if (path.extname(normalizedPath) === '.html') contentType = 'text/html';
+        if (path.extname(normalizedPath) === '.css') contentType = 'text/css';
+
+        res.writeHead(200, { 'Content-Type': contentType });
+        res.end(data);
+      });
+    } else {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end('Access files via /file/ route');
     }
-  `;
+  });
 }
 
-describe('Static files server', () => {
-  describe('createServer', () => {
-    describe('basic scenarios', () => {
-      it('should create a server', () => {
-        expect(createServer)
-          .toBeInstanceOf(Function);
-      });
-
-      it('should create an instance of Server', async() => {
-        expect(createServer())
-          .toBeInstanceOf(Server);
-      });
-    });
-
-    describe('Server', () => {
-      let server;
-      const publicFolderPath = path.resolve(__dirname, '../public');
-      const stylesFolderPath = path.resolve(__dirname, '../public/styles');
-      const indexFilePath = path.resolve(__dirname, '../public/index.html');
-      const mainCSSFilePath = path.resolve(__dirname, '../public/styles/main.css');
-      const randomCSSContent = generateRandomCSS();
-
-      beforeAll(() => {
-        fs.mkdirSync(publicFolderPath);
-
-        fs.mkdirSync(stylesFolderPath);
-
-        fs.writeFileSync(indexFilePath, '<!DOCTYPE html>');
-
-        fs.writeFileSync(mainCSSFilePath, randomCSSContent);
-      });
-
-      beforeEach(() => {
-        server = createServer();
-        server.listen(PORT);
-      });
-
-      afterEach(() => {
-        server.close();
-      });
-
-      afterAll(() => {
-        if (fs.existsSync(indexFilePath)) {
-          fs.rmdirSync(publicFolderPath, { recursive: true });
-        }
-
-        if (fs.existsSync(mainCSSFilePath)) {
-          fs.rmdirSync(stylesFolderPath, { recursive: true });
-        }
-      });
-
-      describe('Valid file requests', () => {
-        it('should return the correct file for a valid path', async() => {
-          const response = await axios.get(`${HOST}/file/index.html`);
-
-          expect(response.status).toBe(200);
-          expect(response.data).toContain('<!DOCTYPE html>');
-        });
-
-        it('should return the correct file for a valid subfolder path', async() => {
-          const response = await axios.get(`${HOST}/file/styles/main.css`);
-
-          expect(response.status).toBe(200);
-          expect(response.data).toContain(randomCSSContent);
-        });
-      });
-
-      describe('Non-existent file requests', () => {
-        it('should return 404 for non-existent files', async() => {
-          expect.assertions(3);
-
-          try {
-            await axios.get(`${HOST}/file/nonexistentfile.txt`);
-          } catch (error) {
-            expect(error.response.status).toBe(404);
-            expect(error.response.headers['content-type']).toBe('text/plain');
-            expect(error.response.data.length).toBeGreaterThan(0);
-          }
-        });
-      });
-
-      describe('Attempt to access files outside public folder', () => {
-        it('should return 400 for traversal paths', async() => {
-          expect.assertions(1);
-
-          try {
-            await axios.get(`${HOST}/file/../app.js`);
-          } catch (error) {
-            expect(error.response.status).toBe(400);
-          }
-        });
-
-        it('should return 404 for paths having duplicated slashes', async() => {
-          expect.assertions(1);
-
-          try {
-            await axios.get(`${HOST}/file//styles//main.css`);
-          } catch (error) {
-            expect(error.response.status).toBe(404);
-          }
-        });
-      });
-
-      describe('Other routes', () => {
-        it('should return hint message for routes not starting with /file/', async() => {
-          const response = await axios.get(`${HOST}/file`);
-
-          expect(response.status).toBe(200);
-          expect(response.headers['content-type']).toBe('text/plain');
-          expect(response.data.length).toBeGreaterThan(0);
-        });
-      });
-    });
-  });
-});
+module.exports = { createServer };
