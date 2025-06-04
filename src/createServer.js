@@ -1,77 +1,54 @@
+/* eslint-disable no-console */
 'use strict';
 
 const http = require('http');
-const path = require('path');
 const fs = require('fs');
+const url = require('url');
+const path = require('path');
 
 function createServer() {
   const server = http.createServer((req, res) => {
+    if (req.url.includes('//')) {
+      res.statusCode = 404;
+      res.end('Please delete duplicated slashes');
+
+      return;
+    }
+
+    const normalizedURL = new url.URL(
+      req.url || '',
+      `http://${req.headers.host}`,
+    );
+
+    res.setHeader('Content-Type', 'text/plain');
+
+    if (!normalizedURL.pathname.startsWith('/file')) {
+      res.statusCode = 400;
+      res.end('Please, start your path with <file>');
+
+      return;
+    }
+
+    const requestedPath =
+      normalizedURL.pathname.replace('/file', '').slice(1) || 'index.html';
+
+    const realPath = path.join(__dirname, '..', 'public', requestedPath);
+
+    if (!fs.existsSync(realPath)) {
+      res.statusCode = 404;
+      res.end("File doesn't exist");
+
+      return;
+    }
+
     try {
-      // Handle cases where Host header might be missing
-      if (!req.headers.host) {
-        res.statusCode = 400;
-        res.end('Host header is required');
-        return;
-      }
+      const data = fs.readFileSync(realPath, 'utf8');
 
-      // Use URL constructor with proper base URL
-      const baseUrl = `http://${req.headers.host}`;
-      const givenUrl = new URL(req.url, baseUrl);
-      const givenPath = givenUrl.pathname;
-
-      if (!givenPath.startsWith('/file/')) {
-        res.setHeader('Content-Type', 'text/plain');
-        res.end('Start your path with /file');
-        return;
-      }
-
-      const rightPath = givenPath.slice(6) || 'index.html';
-
-      if (givenPath.includes('//')) {
-        res.statusCode = 404;
-        res.setHeader('Content-Type', 'text/plain');
-        res.end('Avoid duplicated slashes');
-        return;
-      }
-
-      const publicDir = path.join(__dirname, '..', 'public');
-      const requestedPath = path.join(publicDir, rightPath);
-      const normalizedPath = path.normalize(requestedPath);
-
-      if (!normalizedPath.startsWith(publicDir + path.sep)) {
-        res.statusCode = 400;
-        res.setHeader('Content-Type', 'text/plain');
-        res.end('You cannot read files outside public folder!');
-        return;
-      }
-
-      try {
-        const fileContent = fs.readFileSync(normalizedPath, 'utf-8');
-        const ext = path.extname(normalizedPath).toLowerCase();
-
-        const mimeTypes = {
-          '.html': 'text/html',
-          '.css': 'text/css',
-          '.js': 'text/javascript',
-          '.json': 'application/json',
-          '.txt': 'text/plain'
-        };
-
-        res.setHeader('Content-Type', mimeTypes[ext] || 'text/plain');
-        res.end(fileContent);
-      } catch (error) {
-        if (error.code === 'ENOENT') {
-          res.statusCode = 404;
-          res.setHeader('Content-Type', 'text/plain');
-          res.end('Not Found');
-        } else {
-          throw error;
-        }
-      }
-    } catch (error) {
-      console.error('Server error:', error);
-      res.statusCode = 500;
-      res.end('Internal Server Error');
+      res.statusCode = 200;
+      res.end(data);
+    } catch (err) {
+      res.statusCode = 404;
+      res.end();
     }
   });
 
