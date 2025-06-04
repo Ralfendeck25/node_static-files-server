@@ -4,117 +4,70 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 
-// Logger simples (adicione este código ou crie em um arquivo separado logger.js)
-const logger = {
-  error: (message, error) => {
-    // Em produção, você poderia enviar para um serviço de log
-    // Aqui estamos apenas usando console, mas de forma controlada
-    if (process.env.NODE_ENV !== 'production') {
-      console.error(`[${new Date().toISOString()}] ERROR:`, message, error);
-    }
-  },
-};
-
 function createServer() {
   return http.createServer((req, res) => {
     if (!req.url) {
       res.statusCode = 400;
-      res.end('Invalid URL');
-      return;
+      return res.end('Invalid URL');
     }
 
-    // Decode and normalize the URL
     const requestedPath = decodeURIComponent(req.url);
     const baseRoute = '/file/';
 
-    // Handle non-file routes
     if (!requestedPath.startsWith(baseRoute)) {
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/plain');
-      res.end('Access files via /file/ route');
-      return;
+      return res.end('Access files via /file/ route');
     }
 
-    // Extract the file path after /file/
-    const filePath = requestedPath.slice(baseRoute.length - 1); // Keep leading slash
+    const relativePath = requestedPath.slice(baseRoute.length);
+    const normalizedRelative = path.normalize(relativePath).replace(/\\/g, '/');
 
-    // Block path traversal attempts (more comprehensive check)
-    if (
-      filePath.includes('../') ||
-      filePath.includes('..\\') ||
-      path.normalize(filePath) !== filePath.replace(/\\/g, '/')
-    ) {
+    // Block path traversal
+    if (relativePath.includes('../') ||
+        relativePath.includes('..\\') ||
+        normalizedRelative.includes('../') ||
+        path.isAbsolute(relativePath)) {
       res.statusCode = 400;
-      res.setHeader('Content-Type', 'text/plain');
-      res.end('Path traversal detected');
-      return;
+      return res.end('Path traversal detected');
     }
 
-    // Resolve full file path with security checks
-    const publicDir = path.normalize(path.join(__dirname, '..', 'public'));
-    const fullPath = path.join(publicDir, filePath);
+    const publicDir = path.join(__dirname, '..', 'public');
+    const fullPath = path.join(publicDir, relativePath);
     const normalizedPath = path.normalize(fullPath);
 
-    // Verify path is within public directory (more secure check)
-    if (
-      !normalizedPath.startsWith(publicDir + path.sep) &&
-      normalizedPath !== publicDir
-    ) {
+    // Verify the path is inside public directory
+    if (!normalizedPath.startsWith(path.normalize(publicDir))) {
       res.statusCode = 400;
-      res.setHeader('Content-Type', 'text/plain');
-      res.end('Invalid path');
-      return;
+      return res.end('Invalid path');
     }
 
-    // Check if path exists and is a file
     fs.stat(normalizedPath, (err, stats) => {
-      if (err) {
+      if (err || !stats.isFile()) {
         res.statusCode = 404;
-        res.setHeader('Content-Type', 'text/plain');
-        res.end('File not found');
-        return;
+        return res.end('File not found');
       }
 
-      if (stats.isDirectory()) {
-        res.statusCode = 400;
-        res.setHeader('Content-Type', 'text/plain');
-        res.end('Directory listing not allowed');
-        return;
-      }
-
-      // Stream the file instead of reading it all into memory
       const stream = fs.createReadStream(normalizedPath);
 
-      // Handle stream errors
-      stream.on('error', (err) => {
-        logger.error('Erro ao ler arquivo:', err);
+      stream.on('error', () => {
         res.statusCode = 500;
         res.end('Internal Server Error');
       });
 
-      // Set Content-Type based on file extension
       const ext = path.extname(normalizedPath).toLowerCase();
-      const contentType =
-        {
-          '.html': 'text/html',
-          '.css': 'text/css',
-          '.js': 'text/javascript',
-          '.json': 'application/json',
-          '.png': 'image/png',
-          '.jpg': 'image/jpeg',
-          '.jpeg': 'image/jpeg',
-          '.gif': 'image/gif',
-          '.svg': 'image/svg+xml',
-          '.txt': 'text/plain',
-        }[ext] || 'application/octet-stream';
+      const contentType = {
+        '.html': 'text/html',
+        '.css': 'text/css',
+        '.js': 'text/javascript',
+        '.json': 'application/json',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.txt': 'text/plain'
+      }[ext] || 'application/octet-stream';
 
       res.statusCode = 200;
       res.setHeader('Content-Type', contentType);
-
-      // Add security headers
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-
-      // Pipe the file to the response
       stream.pipe(res);
     });
   });
